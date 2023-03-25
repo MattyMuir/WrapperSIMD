@@ -6,6 +6,21 @@
 
 #include <intrin.h>
 
+enum ComparisonOperator
+{
+	EQUAL = 0x0,
+	LESS = 0x11,
+	LESS_EQUAL = 0x12,
+	GREATER = 0x1E,
+	GREATER_EQUAL = 0x1D,
+
+	EQUAL_NAN_TRUE = 0x8,
+	LESS_NAN_TRUE = 0x9,
+	LESS_EQUAL_NAN_TRUE = 0xA,
+	GREATER_NAN_TRUE = 0x6,
+	GREATER_EQUAL_NAN_TRUE = 0x5
+};
+
 #define RETURN_OP_WITH_SIZE(bits, op, type, ...) {\
 if constexpr (std::is_same_v<type, int8_t>)\
 	return _mm##bits##_##op##_epi8(__VA_ARGS__);\
@@ -64,6 +79,51 @@ inline ValuePack& operator##op##=(ValTy x)\
 	return *this;\
 }
 
+#define ADD_BITWISE_METHOD(op, mmOpName)\
+inline ValuePack operator##op##(ValuePack other) const\
+{\
+	if constexpr (std::is_integral_v<ValTy>)\
+	{\
+		if constexpr (is256)\
+			return _mm256_##mmOpName##_si256(pack, other.pack);\
+		else\
+			return _mm_##mmOpName##_si128(pack, other.pack);\
+	}\
+	if constexpr (std::is_same_v<ValTy, float>)\
+	{\
+		if constexpr (is256)\
+			return _mm256_##mmOpName##_ps(pack, other.pack);\
+		else\
+			return _mm_##mmOpName##_ps(pack, other.pack);\
+	}\
+	if constexpr (std::is_same_v<ValTy, double>)\
+	{\
+		if constexpr (is256)\
+			return _mm256_##mmOpName##_pd(pack, other.pack);\
+		else\
+			return _mm_##mmOpName##_pd(pack, other.pack);\
+	}\
+}
+
+#define ADD_COMP_OP(op, mmOpName, opCode)\
+BoolPack<PackSize, sizeof(ValTy)> operator##op##(ValuePack other)\
+{\
+	if constexpr (std::is_integral_v<ValTy>)\
+	{\
+		RETURN_OP(is256, mmOpName, ValTy, pack, other.pack);\
+	}\
+	else\
+	{\
+		RETURN_OP(is256, cmp, ValTy, pack, other.pack, opCode);\
+	}\
+}
+
+#define ADD_COMP_OP_SCALAR(op)\
+BoolPack<PackSize, sizeof(ValTy)> operator##op##(ValTy x)\
+{\
+	return (*this) op RepVal(x);\
+}
+
 #define ADD_FREE_FUNC(funcName, mmOpName)\
 template <typename ValTy, size_t PackSize>\
 inline ValuePack<ValTy, PackSize> funcName (ValuePack<ValTy, PackSize> pack)\
@@ -88,6 +148,35 @@ friend ValuePack<ValTy, PackSize> funcName (ValuePack<ValTy, PackSize> pack1, Va
 
 template<typename ValTy, typename T>
 concept IsValTy = std::is_convertible_v<T, ValTy>;
+
+template <size_t NumElem, size_t ElemSize>
+class BoolPack
+{
+protected:
+	static_assert(NumElem * ElemSize == 16 || NumElem * ElemSize == 32, "Invalid BoolPack size");
+	static_assert(ElemSize == 1 || ElemSize == 2 || ElemSize == 4 || ElemSize == 8, "Invalid element size in BoolPack");
+	using ElemType =	std::conditional_t<ElemSize == 1, uint8_t,
+						std::conditional_t<ElemSize == 2, uint16_t,
+						std::conditional_t<ElemSize == 4, uint32_t, uint64_t>>>;
+
+public:
+	template<typename PackType>
+	BoolPack(PackType pack)
+		: d(std::bit_cast<Data>(pack)) {}
+
+	bool operator[](size_t idx) const
+	{
+		return (bool)d.vals[idx];
+	}
+
+protected:
+	struct Data
+	{
+		ElemType vals[NumElem];
+	};
+
+	alignas(NumElem* ElemSize) Data d;
+};
 
 template <typename ValTy, size_t PackSize>
 class ValuePack
@@ -114,6 +203,8 @@ protected:
 			// Double
 			std::conditional_t<PackSize == 2, __m128d, __m256d>>>;
 
+	using SumType = decltype(ValTy{} + ValTy{});
+
 public:
 
 	// == Constructors ==
@@ -125,6 +216,7 @@ public:
 	template <IsValTy<ValTy>... Vals>
 	ValuePack(ValTy first, Vals... others)
 	{
+		static_assert(sizeof...(others) == PackSize - 1, "Incorrect number of initializer values for ValuePack");
 		pack = Set(first, others...).pack;
 	}
 
@@ -137,16 +229,37 @@ public:
 	template <IsValTy<ValTy>... Vals>
 	static ValuePack Set(Vals... vals)
 	{
-		RETURN_OP(is256, set, ValTy, vals...);
+		// Large pack of int64_t or uint64_t, different 'set' function required
+		if constexpr (is256 && std::is_same_v<ValTy, int64_t>)
+			return _mm256_setr_epi64x(vals...);
+		else if constexpr (is256 && std::is_same_v<ValTy, uint64_t>)
+			return _mm256_setr_epi64x(static_cast<int64_t>(vals)...);
+
+		else if constexpr (std::is_unsigned_v<ValTy>)
+		{
+			// Type is unsigned, use the signed function with a cast
+			using OpTy = std::make_signed_t<ValTy>;
+			RETURN_OP(is256, setr, OpTy, static_cast<OpTy>(vals)...);
+		}
+		else
+		{
+			RETURN_OP(is256, setr, ValTy, vals...);
+		}
 	}
 
 	static ValuePack RepVal(ValTy x)
 	{
-		if constexpr (std::is_unsigned_v<ValTy>)
+		// Large pack of int64_t or uint64_t, different 'set' function required
+		if constexpr (is256 && std::is_same_v<ValTy, int64_t>)
+			return _mm256_set1_epi64x(x);
+		else if constexpr (is256 && std::is_same_v<ValTy, uint64_t>)
+			return _mm256_set1_epi64x(static_cast<int64_t>(x));
+
+		else if constexpr (std::is_unsigned_v<ValTy>)
 		{
-			// Type is unsigned, use the signed function with a bit_cast
+			// Type is unsigned, use the signed function with a cast
 			using OpTy = std::make_signed_t<ValTy>;
-			RETURN_OP(is256, set1, OpTy, std::bit_cast<OpTy>(x));
+			RETURN_OP(is256, set1, OpTy, static_cast<OpTy>(x));
 		}
 		else
 		{
@@ -161,7 +274,7 @@ public:
 	}
 
 	// Array access operator
-	ValTy operator[](size_t idx) const
+	ValTy& operator[](size_t idx) const
 	{
 #ifdef _DEBUG
 		assert(idx >= 0 && idx < PackSize);
@@ -169,7 +282,6 @@ public:
 		return ((ValTy*)&pack)[idx];
 	}
 
-	using SumType = decltype(ValTy{} + ValTy{});
 	SumType Sum() const
 	{
 		SumType sum = (*this)[0];
@@ -215,6 +327,11 @@ public:
 	ADD_OP_METHOD(*, mul);
 	ADD_OP_METHOD(/, div);
 	ADD_OP_METHOD(%, rem);
+	ADD_OP_METHOD(>>, srav);
+	ADD_OP_METHOD(<<, sllv);
+	ADD_BITWISE_METHOD(&, and);
+	ADD_BITWISE_METHOD(|, or);
+	ADD_BITWISE_METHOD(^, xor);
 
 	// In place with packs
 	ADD_IN_PLACE_METHOD(+);
@@ -222,6 +339,11 @@ public:
 	ADD_IN_PLACE_METHOD(*);
 	ADD_IN_PLACE_METHOD(/);
 	ADD_IN_PLACE_METHOD(%);
+	ADD_IN_PLACE_METHOD(>>);
+	ADD_IN_PLACE_METHOD(<<);
+	ADD_IN_PLACE_METHOD(&);
+	ADD_IN_PLACE_METHOD(|);
+	ADD_IN_PLACE_METHOD(^);
 
 	// With scalars
 	ADD_SCALAR_METHOD(+);
@@ -229,13 +351,32 @@ public:
 	ADD_SCALAR_METHOD(*);
 	ADD_SCALAR_METHOD(/);
 	ADD_SCALAR_METHOD(%);
+	ADD_SCALAR_METHOD(&);
+	ADD_SCALAR_METHOD(|);
+	ADD_SCALAR_METHOD(^);
 
 	// In place with scalars
 	ADD_IN_PLACE_SCALAR_METHOD(+);
 	ADD_IN_PLACE_SCALAR_METHOD(-);
 	ADD_IN_PLACE_SCALAR_METHOD(*);
-	ADD_IN_PLACE_SCALAR_METHOD(/ );
+	ADD_IN_PLACE_SCALAR_METHOD(/);
 	ADD_IN_PLACE_SCALAR_METHOD(%);
+	ADD_IN_PLACE_SCALAR_METHOD(&);
+	ADD_IN_PLACE_SCALAR_METHOD(|);
+	ADD_IN_PLACE_SCALAR_METHOD(^);
+
+	// === Comparison operators ===
+	ADD_COMP_OP(==, cmpeq, EQUAL);
+	ADD_COMP_OP(>, cmpgt, GREATER);
+	ADD_COMP_OP(<, cmplt, LESS);
+	ADD_COMP_OP(>=, cmpge, GREATER_EQUAL);
+	ADD_COMP_OP(<=, cmple, LESS_EQUAL);
+
+	ADD_COMP_OP_SCALAR(==);
+	ADD_COMP_OP_SCALAR(>);
+	ADD_COMP_OP_SCALAR(<);
+	ADD_COMP_OP_SCALAR(>=);
+	ADD_COMP_OP_SCALAR(<=);
 
 	// == Free function friends ==
 	// Trig functions
@@ -263,6 +404,9 @@ public:
 
 	ADD_FREE_FRIEND_2ARG(min);
 	ADD_FREE_FRIEND_2ARG(max);
+
+	template <ComparisonOperator op, typename ValTy, size_t PackSize>
+	friend BoolPack<PackSize, sizeof(ValTy)> cmp(ValuePack<ValTy, PackSize> pack1, ValuePack<ValTy, PackSize> pack2);
 	
 	PackTy pack;
 };
@@ -294,7 +438,13 @@ ADD_FREE_FUNC(ceil, ceil);
 ADD_FREE_FUNC_2ARG(min, min);
 ADD_FREE_FUNC_2ARG(max, max);
 
-// Ostream operator
+template <ComparisonOperator op, typename ValTy, size_t PackSize>
+BoolPack<PackSize, sizeof(ValTy)> cmp(ValuePack<ValTy, PackSize> pack1, ValuePack<ValTy, PackSize> pack2)
+{
+	RETURN_OP(pack1.is256, cmp, ValTy, pack1.pack, pack2.pack, op);
+}
+
+// === Ostream operators ===
 template <typename ValTy, size_t PackSize>
 std::ostream& operator<<(std::ostream& os, const ValuePack<ValTy, PackSize>& pack)
 {
@@ -306,6 +456,19 @@ std::ostream& operator<<(std::ostream& os, const ValuePack<ValTy, PackSize>& pac
 			os << (int)pack[i];
 		else
 			os << pack[i];
+	}
+	os << ']';
+	return os;
+}
+
+template <size_t NumElem, size_t ElemSize>
+std::ostream& operator<<(std::ostream& os, const BoolPack<NumElem, ElemSize>& pack)
+{
+	os << '[';
+	for (size_t i = 0; i < NumElem; i++)
+	{
+		if (i) os << ", ";
+		os << std::format("{}", pack[i]);
 	}
 	os << ']';
 	return os;
