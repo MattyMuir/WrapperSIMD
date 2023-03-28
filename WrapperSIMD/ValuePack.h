@@ -108,7 +108,7 @@ inline ValuePack operator##op##(ValuePack other) const\
 }
 
 #define ADD_COMP_OP(op, mmOpName, opCode)\
-BoolPack<PackSize, sizeof(ValTy)> operator##op##(ValuePack other)\
+inline BoolPack<PackSize, sizeof(ValTy)> operator##op##(ValuePack other)\
 {\
 	if constexpr (std::is_integral_v<ValTy>)\
 	{\
@@ -121,7 +121,7 @@ BoolPack<PackSize, sizeof(ValTy)> operator##op##(ValuePack other)\
 }
 
 #define ADD_COMP_OP_SCALAR(op)\
-BoolPack<PackSize, sizeof(ValTy)> operator##op##(ValTy x)\
+inline BoolPack<PackSize, sizeof(ValTy)> operator##op##(ValTy x)\
 {\
 	return (*this) op RepVal(x);\
 }
@@ -450,18 +450,28 @@ public:
 	ADD_FREE_FRIEND(log2);
 	ADD_FREE_FRIEND(log10);
 	ADD_FREE_FRIEND(sqrt);
+	ADD_FREE_FRIEND(cbrt);
+	ADD_FREE_FRIEND(invsqrt);
+	ADD_FREE_FRIEND(invsqrt_approx);
+	ADD_FREE_FRIEND(invcbrt);
 	ADD_FREE_FRIEND_2ARG(pow);
 
 	// Other functions
-	ADD_FREE_FRIEND(abs);
-
+	// Rounding
 	ADD_FREE_FRIEND(floor);
 	ADD_FREE_FRIEND(round);
 	ADD_FREE_FRIEND(ceil);
 
+	// Simple
+	ADD_FREE_FRIEND(abs);
 	ADD_FREE_FRIEND_2ARG(min);
 	ADD_FREE_FRIEND_2ARG(max);
 	ADD_FREE_FRIEND_2ARG(avg);
+	ADD_FREE_FRIEND_2ARG(adds);
+	ADD_FREE_FRIEND_2ARG(subs);
+
+	// Special
+	ADD_FREE_FRIEND(erf);
 
 	template <ComparisonOperator op, typename ValTy, size_t PackSize>
 	friend BoolPack<PackSize, sizeof(ValTy)> cmp(ValuePack<ValTy, PackSize> pack1, ValuePack<ValTy, PackSize> pack2);
@@ -477,6 +487,12 @@ ADD_FREE_FUNC(tan, tan);
 ADD_FREE_FUNC(asin, asin);
 ADD_FREE_FUNC(acos, acos);
 ADD_FREE_FUNC(atan, atan);
+ADD_FREE_FUNC(sinh, sinh);
+ADD_FREE_FUNC(cosh, cosh);
+ADD_FREE_FUNC(tanh, tanh);
+ADD_FREE_FUNC(asinh, asinh);
+ADD_FREE_FUNC(acosh, acosh);
+ADD_FREE_FUNC(atanh, atanh);
 
 // Exp functions
 ADD_FREE_FUNC(exp, exp);
@@ -484,27 +500,37 @@ ADD_FREE_FUNC(log, log);
 ADD_FREE_FUNC(log2, log2);
 ADD_FREE_FUNC(log10, log10);
 ADD_FREE_FUNC(sqrt, sqrt);
+ADD_FREE_FUNC(cbrt, cbrt);
+ADD_FREE_FUNC(invsqrt, invsqrt);
+ADD_FREE_FUNC(invsqrt_approx, rsqrt);
+ADD_FREE_FUNC(invcbrt, invcbrt);
 ADD_FREE_FUNC_2ARG(pow, pow);
 
 // Other functions
-ADD_FREE_FUNC(abs, abs);
-
+// Rounding
 ADD_FREE_FUNC(floor, floor);
 ADD_FREE_FUNC(round, round);
 ADD_FREE_FUNC(ceil, ceil);
 
+// Simple
+ADD_FREE_FUNC(abs, abs);
 ADD_FREE_FUNC_2ARG(min, min);
 ADD_FREE_FUNC_2ARG(max, max);
 ADD_FREE_FUNC_2ARG(avg, avg);
+ADD_FREE_FUNC_2ARG(adds, adds);
+ADD_FREE_FUNC_2ARG(subs, subs);
+
+// Special
+ADD_FREE_FUNC(erf, erf);
 
 template <typename ValTy, size_t PackSize>
-BoolPack<PackSize, sizeof(ValTy)> isfinite(ValuePack<ValTy, PackSize> pack)
+inline BoolPack<PackSize, sizeof(ValTy)> isfinite(ValuePack<ValTy, PackSize> pack)
 {
 	return cmp<IS_FINITE>(pack, pack);
 }
 
 template <ComparisonOperator op, typename ValTy, size_t PackSize>
-BoolPack<PackSize, sizeof(ValTy)> cmp(ValuePack<ValTy, PackSize> pack1, ValuePack<ValTy, PackSize> pack2)
+inline BoolPack<PackSize, sizeof(ValTy)> cmp(ValuePack<ValTy, PackSize> pack1, ValuePack<ValTy, PackSize> pack2)
 {
 	RETURN_OP(pack1.is256, cmp, ValTy, pack1.pack, pack2.pack, op);
 }

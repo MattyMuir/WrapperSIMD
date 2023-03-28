@@ -9,10 +9,11 @@
 
 int main()
 {
-	ValuePack<int32_t, 4> vals{ 25 };
-	ValuePack<int32_t, 4> shift{ 1, 2, 3, 4 };
+	ValuePack<float, 8> a { 2.0f };
 
-	vals >>= shift;
+	auto r1 = invsqrt(a);
+	auto r2 = invsqrt_approx(a);
 
-	std::cout << vals << '\n';
+	std::cout << std::format("{}\n", r1[0]);
+	std::cout << std::format("{}\n", r2[0]);
 }
