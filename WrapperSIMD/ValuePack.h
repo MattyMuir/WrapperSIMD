@@ -161,6 +161,8 @@ protected:
 						std::conditional_t<ElemSize == 2, uint16_t,
 						std::conditional_t<ElemSize == 4, uint32_t, uint64_t>>>;
 
+	static constexpr bool is256 = (NumElem * ElemSize == 32);
+
 public:
 	template<typename PackType>
 	BoolPack(PackType pack)
@@ -169,6 +171,39 @@ public:
 	bool operator[](size_t idx) const
 	{
 		return (bool)d.vals[idx];
+	}
+
+	inline operator bool() const
+	{
+		return All();
+	}
+
+	inline bool All() const
+	{
+		if constexpr (is256)
+		{
+			__m256i& pack = *(__m256i*) & d;
+			return (bool)_mm256_test_all_ones(pack);
+		}
+		else
+		{
+			__m128i& pack = *(__m128i*) & d;
+			return (bool)_mm_test_all_ones(std::bit_cast<__m128i>(d));
+		}
+	}
+
+	inline bool None() const
+	{
+		if constexpr (is256)
+		{
+			__m256i& pack = *(__m256i*) & d;
+			return (bool)_mm256_testz_si256(pack, _mm256_cmpeq_epi32(pack, pack));
+		}
+		else
+		{
+			__m128i& pack = *(__m128i*) & d;
+			return (bool)_mm_testz_si128(pack, _mm_cmpeq_epi32(pack, pack));
+		}
 	}
 
 protected:
