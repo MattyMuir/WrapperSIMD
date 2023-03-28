@@ -9,6 +9,5 @@
 
 int main()
 {
-	ValuePack<float, 8> a { 2.0f };
-	ValuePack<float, 8> b { 2.0f, 2.0f, 2.0f, 2.0f, 2.0f, 2.0f, 2.0f, 2.0f };
+
 }

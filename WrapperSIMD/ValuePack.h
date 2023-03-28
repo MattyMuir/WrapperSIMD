@@ -197,12 +197,12 @@ public:
 		if constexpr (is256)
 		{
 			__m256i& pack = *(__m256i*) & d;
-			return (bool)_mm256_testz_si256(pack, _mm256_cmpeq_epi32(pack, pack));
+			return (bool)_mm256_testz_si256(pack, pack);
 		}
 		else
 		{
 			__m128i& pack = *(__m128i*) & d;
-			return (bool)_mm_testz_si128(pack, _mm_cmpeq_epi32(pack, pack));
+			return (bool)_mm_testz_si128(pack, pack);
 		}
 	}
 
