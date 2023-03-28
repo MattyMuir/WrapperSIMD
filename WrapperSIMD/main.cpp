@@ -1,16 +1,18 @@
 #include <iostream>
+#include <iomanip>
 #include <bitset>
 #include <bit>
 #include <format>
+#include <random>
 
 #include "ValuePack.h"
 
 int main()
 {
-	ValuePack<double, 4> p1{ 17, -5, 3, 8 };
-	ValuePack<double, 4> p2{ 17, -4, 3, -8 };
+	ValuePack<int32_t, 4> vals{ 25 };
+	ValuePack<int32_t, 4> shift{ 1, 2, 3, 4 };
 
-	auto bools = cmp<GREATER_EQUAL_NAN_TRUE>(p1, p2);
+	vals >>= shift;
 
-	std::cout << bools << '\n';
+	std::cout << vals << '\n';
 }

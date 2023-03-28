@@ -18,7 +18,9 @@ enum ComparisonOperator
 	LESS_NAN_TRUE = 0x9,
 	LESS_EQUAL_NAN_TRUE = 0xA,
 	GREATER_NAN_TRUE = 0x6,
-	GREATER_EQUAL_NAN_TRUE = 0x5
+	GREATER_EQUAL_NAN_TRUE = 0x5,
+
+	IS_FINITE = 0x7
 };
 
 #define RETURN_OP_WITH_SIZE(bits, op, type, ...) {\
@@ -298,6 +300,9 @@ public:
 		// Types are the same, no conversion necessary
 		if constexpr (std::is_same_v<ValTy, To>) return (*this);
 
+		// Converting (signed -> unsigned) or vice versa
+		if constexpr (std::is_same_v<std::make_unsigned_t<ValTy>, std::make_unsigned_t<To>>) return pack;
+
 		if constexpr (std::is_same_v<ValTy, int8_t>)
 			RETURN_OP(cvtIs256, cvtepi8, To, pack);
 		if constexpr (std::is_same_v<ValTy, uint8_t>)
@@ -327,8 +332,6 @@ public:
 	ADD_OP_METHOD(*, mul);
 	ADD_OP_METHOD(/, div);
 	ADD_OP_METHOD(%, rem);
-	ADD_OP_METHOD(>>, srav);
-	ADD_OP_METHOD(<<, sllv);
 	ADD_BITWISE_METHOD(&, and);
 	ADD_BITWISE_METHOD(|, or);
 	ADD_BITWISE_METHOD(^, xor);
@@ -339,8 +342,8 @@ public:
 	ADD_IN_PLACE_METHOD(*);
 	ADD_IN_PLACE_METHOD(/);
 	ADD_IN_PLACE_METHOD(%);
-	ADD_IN_PLACE_METHOD(>>);
 	ADD_IN_PLACE_METHOD(<<);
+	ADD_IN_PLACE_METHOD(>>);
 	ADD_IN_PLACE_METHOD(&);
 	ADD_IN_PLACE_METHOD(|);
 	ADD_IN_PLACE_METHOD(^);
@@ -378,6 +381,60 @@ public:
 	ADD_COMP_OP_SCALAR(>=);
 	ADD_COMP_OP_SCALAR(<=);
 
+	// Shifting
+	inline ValuePack operator<<(ValuePack other) const
+	{
+		using UValTy = std::make_signed_t<ValTy>;
+		RETURN_OP(is256, sllv, UValTy, pack, other.pack);
+	}
+	inline ValuePack operator>>(ValuePack other) const
+	{
+		static_assert(!std::is_same_v<ValTy, int64_t>, "Arithmetic right shift is not supported on signed 64 bit integers in SSE / AVX");
+
+		if constexpr (std::is_unsigned_v<ValTy>)
+		{
+			// epu32, epu64
+			using UValTy = std::make_signed_t<ValTy>;
+			RETURN_OP(is256, srlv, UValTy, pack, other.pack);
+		}
+		else
+		{
+			// epi32
+			RETURN_OP(is256, srav, ValTy, pack, other.pack);
+		}
+	}
+	inline ValuePack operator<<(int x) const
+	{
+		using UValTy = std::make_signed_t<ValTy>;
+		RETURN_OP(is256, slli, UValTy, pack, x);
+	}
+	inline ValuePack operator>>(int x) const
+	{
+		static_assert(!std::is_same_v<ValTy, int64_t>, "Arithmetic right shift is not supported on signed 64 bit integers in SSE / AVX");
+
+		if constexpr (std::is_unsigned_v<ValTy>)
+		{
+			// epu16, epu32, epu64
+			using UValTy = std::make_signed_t<ValTy>;
+			RETURN_OP(is256, srli, UValTy, pack, x);
+		}
+		else
+		{
+			// epi16, epi32
+			RETURN_OP(is256, srai, ValTy, pack, x);
+		}
+	}
+	inline ValuePack& operator<<=(int x)
+	{
+		pack = ((*this) << x).pack;
+		return *this;
+	}
+	inline ValuePack& operator>>=(int x)
+	{
+		pack = ((*this) >> x).pack;
+		return *this;
+	}
+
 	// == Free function friends ==
 	// Trig functions
 	ADD_FREE_FRIEND(sin);
@@ -404,6 +461,7 @@ public:
 
 	ADD_FREE_FRIEND_2ARG(min);
 	ADD_FREE_FRIEND_2ARG(max);
+	ADD_FREE_FRIEND_2ARG(avg);
 
 	template <ComparisonOperator op, typename ValTy, size_t PackSize>
 	friend BoolPack<PackSize, sizeof(ValTy)> cmp(ValuePack<ValTy, PackSize> pack1, ValuePack<ValTy, PackSize> pack2);
@@ -437,6 +495,13 @@ ADD_FREE_FUNC(ceil, ceil);
 
 ADD_FREE_FUNC_2ARG(min, min);
 ADD_FREE_FUNC_2ARG(max, max);
+ADD_FREE_FUNC_2ARG(avg, avg);
+
+template <typename ValTy, size_t PackSize>
+BoolPack<PackSize, sizeof(ValTy)> isfinite(ValuePack<ValTy, PackSize> pack)
+{
+	return cmp<IS_FINITE>(pack, pack);
+}
 
 template <ComparisonOperator op, typename ValTy, size_t PackSize>
 BoolPack<PackSize, sizeof(ValTy)> cmp(ValuePack<ValTy, PackSize> pack1, ValuePack<ValTy, PackSize> pack2)
