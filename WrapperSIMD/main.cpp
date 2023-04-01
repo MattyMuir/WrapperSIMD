@@ -1,13 +1,13 @@
 #include <iostream>
-#include <iomanip>
-#include <bitset>
-#include <bit>
 #include <format>
-#include <random>
 
 #include "ValuePack.h"
 
 int main()
 {
+	float first = rand();
+	float incr = rand();
 
+	ValuePack p = ValuePack<float, 8>::Range(first, incr);
+	std::cout << p << '\n';
 }

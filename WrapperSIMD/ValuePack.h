@@ -151,6 +151,9 @@ friend ValuePack<ValTy, PackSize> funcName (ValuePack<ValTy, PackSize> pack1, Va
 template<typename ValTy, typename T>
 concept IsValTy = std::is_convertible_v<T, ValTy>;
 
+template <typename Arithmetic>
+using SumType = decltype(Arithmetic{} + Arithmetic{});
+
 template <size_t NumElem, size_t ElemSize>
 class BoolPack
 {
@@ -239,9 +242,6 @@ protected:
 
 			// Double
 			std::conditional_t<PackSize == 2, __m128d, __m256d>>>;
-
-	using SumType = decltype(ValTy{} + ValTy{});
-
 public:
 
 	// == Constructors ==
@@ -272,6 +272,12 @@ public:
 		else if constexpr (is256 && std::is_same_v<ValTy, uint64_t>)
 			return _mm256_setr_epi64x(static_cast<int64_t>(vals)...);
 
+		// MSVC uses 'epi64x' even for 128 bit packs, despite the intel intrinsics docs
+		else if constexpr (!is256 && std::is_same_v<ValTy, int64_t>)
+			return _mm_setr_epi64x(vals...);
+		else if constexpr (!is256 && std::is_same_v<ValTy, uint64_t>)
+			return _mm_setr_epi64x(static_cast<int64_t>(vals)...);
+
 		else if constexpr (std::is_unsigned_v<ValTy>)
 		{
 			// Type is unsigned, use the signed function with a cast
@@ -281,6 +287,33 @@ public:
 		else
 		{
 			RETURN_OP(is256, setr, ValTy, vals...);
+		}
+	}
+
+	template <IsValTy<ValTy>... Vals>
+	static ValuePack SetReverse(Vals... vals)
+	{
+		// Large pack of int64_t or uint64_t, different 'set' function required
+		if constexpr (is256 && std::is_same_v<ValTy, int64_t>)
+			return _mm256_set_epi64x(vals...);
+		else if constexpr (is256 && std::is_same_v<ValTy, uint64_t>)
+			return _mm256_set_epi64x(static_cast<int64_t>(vals)...);
+
+		// MSVC uses 'epi64x' even for 128 bit packs, despite the intel intrinsics docs
+		else if constexpr (!is256 && std::is_same_v<ValTy, int64_t>)
+			return _mm_set_epi64x(vals...);
+		else if constexpr (!is256 && std::is_same_v<ValTy, uint64_t>)
+			return _mm_set_epi64x(static_cast<int64_t>(vals)...);
+
+		else if constexpr (std::is_unsigned_v<ValTy>)
+		{
+			// Type is unsigned, use the signed function with a cast
+			using OpTy = std::make_signed_t<ValTy>;
+			RETURN_OP(is256, set, OpTy, static_cast<OpTy>(vals)...);
+		}
+		else
+		{
+			RETURN_OP(is256, set, ValTy, vals...);
 		}
 	}
 
@@ -304,6 +337,39 @@ public:
 		}
 	}
 
+	static ValuePack Range(ValTy first, ValTy incr)
+	{
+		if constexpr (std::is_floating_point_v<ValTy>)
+		{
+			return RepVal(first) + Range<0, 1>() * incr;
+		}
+		else
+			return RangeWithSet(first, incr);
+	}
+
+	template <ValTy first, ValTy incr>
+	static ValuePack Range()
+	{
+		return RangeWithSet(first, incr);
+	}
+
+protected:
+	template <typename... Args>
+	static inline ValuePack DoRangeWithSet(ValTy incr, ValTy first, Args... others)
+	{
+		if constexpr (sizeof...(others) == PackSize - 1)
+			return SetReverse(first, others...);
+		else
+			return DoRangeWithSet(incr, first + incr, first, others...);
+	}
+
+	static ValuePack RangeWithSet(ValTy first, ValTy incr)
+	{
+		return DoRangeWithSet(incr, first);
+	}
+
+public:
+
 	// == Special members ==
 	consteval size_t Size()
 	{
@@ -317,14 +383,6 @@ public:
 		assert(idx >= 0 && idx < PackSize);
 #endif
 		return ((ValTy*)&pack)[idx];
-	}
-
-	SumType Sum() const
-	{
-		SumType sum = (*this)[0];
-		for (size_t i = 1; i < PackSize; i++)
-			sum += (*this)[i];
-		return sum;
 	}
 
 	template<typename To>
@@ -557,6 +615,91 @@ ADD_FREE_FUNC_2ARG(subs, subs);
 
 // Special
 ADD_FREE_FUNC(erf, erf);
+
+// 'sum' default algorithm
+template <typename ValTy, size_t PackSize>
+SumType<ValTy> sum(ValuePack<ValTy, PackSize> pack)
+{
+	SumType<ValTy> sum = pack[0];
+	for (size_t i = 1; i < PackSize; i++)
+		sum += pack[i];
+	return sum;
+}
+
+// ===== 'sum' Specializations =====
+template <>
+int64_t sum<int64_t, 2>(ValuePack<int64_t, 2> pack)
+{
+	__m128i shuffled = _mm_shuffle_epi32(pack.pack, 0b01'00'11'10);
+	__m128i sum = _mm_add_epi64(pack.pack, shuffled);
+	return sum.m128i_i64[0];
+}
+
+template <>
+int sum<uint8_t, 32>(ValuePack<uint8_t, 32> pack)
+{
+	__m256i sum4 = _mm256_sad_epu8(pack.pack, _mm256_setzero_si256());
+	__m128i low = _mm256_extracti128_si256(sum4, 0);
+	__m128i high = _mm256_extracti128_si256(sum4, 1);
+	__m128i sum2 = _mm_add_epi64(low, high);
+	__m128i shuffled = _mm_shuffle_epi32(sum2, 0b01'00'11'10);
+	__m128i sum1 = _mm_add_epi64(sum2, shuffled);
+	return (int)sum1.m128i_i64[0];
+}
+
+template <>
+int64_t sum<int64_t, 4>(ValuePack<int64_t, 4> pack)
+{
+	__m128i low = _mm256_extracti128_si256(pack.pack, 0);
+	__m128i high = _mm256_extracti128_si256(pack.pack, 1);
+	__m128i sum2 = _mm_add_epi64(low, high);
+	__m128i shuffled = _mm_shuffle_epi32(sum2, 0b01'00'11'10);
+	__m128i sum1 = _mm_add_epi64(sum2, shuffled);
+	return sum1.m128i_i64[0];
+}
+
+template <>
+double sum<double, 4>(ValuePack<double, 4> pack)
+{
+	__m128d low = _mm256_extractf128_pd(pack.pack, 0);
+	__m128d high = _mm256_extractf128_pd(pack.pack, 1);
+	__m128d sum2 = _mm_add_pd(low, high);
+
+	__m128d high64 = _mm_unpackhi_pd(sum2, sum2);
+	return  _mm_add_sd(sum2, high64).m128d_f64[0];
+}
+
+template <>
+int sum<int8_t, 32>(ValuePack<int8_t, 32> pack)
+{
+	__m256i rangeShifted = _mm256_xor_si256(pack.pack, _mm256_set1_epi8(0b1000'0000i8));
+	__m256i sum4 = _mm256_sad_epu8(rangeShifted, _mm256_setzero_si256());
+	__m128i low = _mm256_extracti128_si256(sum4, 0);
+	__m128i high = _mm256_extracti128_si256(sum4, 1);
+	__m128i sum2 = _mm_add_epi64(low, high);
+	__m128i shuffled = _mm_shuffle_epi32(sum2, 0b01'00'11'10);
+	__m128i sum1 = _mm_add_epi64(sum2, shuffled);
+	return (int)(sum1.m128i_i64[0] - 4096);
+}
+
+template <>
+int sum<uint8_t, 16>(ValuePack<uint8_t, 16> pack)
+{
+	__m128i sum2 = _mm_sad_epu8(pack.pack, _mm_setzero_si128());
+	__m128i shuffled = _mm_shuffle_epi32(sum2, 0b01'00'11'10);
+	__m128i sum1 = _mm_add_epi64(sum2, shuffled);
+	return (int)sum1.m128i_i64[0];
+}
+
+template <>
+int sum<int8_t, 16>(ValuePack<int8_t, 16> pack)
+{
+	__m128i rangeShifted = _mm_xor_si128(pack.pack, _mm_set1_epi8(0b1000'0000i8));
+	__m128i sum2 = _mm_sad_epu8(rangeShifted, _mm_setzero_si128());
+	__m128i shuffled = _mm_shuffle_epi32(sum2, 0b01'00'11'10);
+	__m128i sum1 = _mm_add_epi64(sum2, shuffled);
+	return (int)(sum1.m128i_i64[0] - 2048);
+}
 
 template <typename ValTy, size_t PackSize>
 inline BoolPack<PackSize, sizeof(ValTy)> isfinite(ValuePack<ValTy, PackSize> pack)
