@@ -2,12 +2,9 @@
 #include <format>
 
 #include "ValuePack.h"
+#include "Timer.h"
 
 int main()
 {
-	float first = rand();
-	float incr = rand();
-
-	ValuePack p = ValuePack<float, 8>::Range(first, incr);
-	std::cout << p << '\n';
+	ValuePack p{ __m256d{1.0, 2.0, 3.0, 4.0} };
 }

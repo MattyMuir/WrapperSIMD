@@ -659,6 +659,13 @@ int64_t sum<int64_t, 4>(ValuePack<int64_t, 4> pack)
 }
 
 template <>
+double sum<double, 2>(ValuePack<double, 2> pack)
+{
+	__m128d high64 = _mm_unpackhi_pd(pack.pack, pack.pack);
+	return _mm_add_sd(pack.pack, high64).m128d_f64[0];
+}
+
+template <>
 double sum<double, 4>(ValuePack<double, 4> pack)
 {
 	__m128d low = _mm256_extractf128_pd(pack.pack, 0);
@@ -666,7 +673,7 @@ double sum<double, 4>(ValuePack<double, 4> pack)
 	__m128d sum2 = _mm_add_pd(low, high);
 
 	__m128d high64 = _mm_unpackhi_pd(sum2, sum2);
-	return  _mm_add_sd(sum2, high64).m128d_f64[0];
+	return _mm_add_sd(sum2, high64).m128d_f64[0];
 }
 
 template <>
@@ -742,3 +749,18 @@ std::ostream& operator<<(std::ostream& os, const BoolPack<NumElem, ElemSize>& pa
 	os << ']';
 	return os;
 }
+
+// === Deduction Guides ===
+template <typename FirstTy, IsValTy<FirstTy>... OtherTy> ValuePack(FirstTy, OtherTy...)
+-> ValuePack<FirstTy, sizeof...(OtherTy) + 1>;
+
+// Guides for __m128d, __m256, and __m256d
+// Guides cannot be provided for __m128, __m128i and __m256i as they contain unions, and the desired type is therefore unknowable
+ValuePack(__m128d)
+->ValuePack<double, 2>;
+
+ValuePack(__m256)
+->ValuePack<float, 8>;
+
+ValuePack(__m256d)
+->ValuePack<double, 4>;
