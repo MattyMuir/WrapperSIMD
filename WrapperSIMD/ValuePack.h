@@ -245,7 +245,10 @@ protected:
 public:
 
 	// == Constructors ==
+#pragma warning(push)
+#pragma warning(disable : 26495)
 	ValuePack() {}
+#pragma warning(pop)
 
 	ValuePack(PackTy pack_)
 		: pack(pack_) {}
@@ -461,6 +464,20 @@ public:
 	ADD_IN_PLACE_SCALAR_METHOD(|);
 	ADD_IN_PLACE_SCALAR_METHOD(^);
 
+	// Unary minus
+	ValuePack operator-() const
+	{
+		static_assert(!std::is_unsigned_v<ValTy>, "Cannot apply unary minus to unsigned type");
+		if constexpr (std::is_floating_point_v<ValTy>)
+		{
+			RETURN_OP(is256, xor, ValTy, pack, RepVal(-0.0).pack);
+		}
+		else
+		{
+			// TODO - Unary minus on integer types
+		}
+	}
+
 	// === Comparison operators ===
 	ADD_COMP_OP(==, cmpeq, EQUAL);
 	ADD_COMP_OP(>, cmpgt, GREATER);
@@ -536,6 +553,13 @@ public:
 	ADD_FREE_FRIEND(asin);
 	ADD_FREE_FRIEND(acos);
 	ADD_FREE_FRIEND(atan);
+	ADD_FREE_FRIEND_2ARG(atan2);
+	ADD_FREE_FRIEND(sinh);
+	ADD_FREE_FRIEND(cosh);
+	ADD_FREE_FRIEND(tanh);
+	ADD_FREE_FRIEND(asinh);
+	ADD_FREE_FRIEND(acosh);
+	ADD_FREE_FRIEND(atanh);
 
 	// Exp functions
 	ADD_FREE_FRIEND(exp);
@@ -580,6 +604,7 @@ ADD_FREE_FUNC(tan, tan);
 ADD_FREE_FUNC(asin, asin);
 ADD_FREE_FUNC(acos, acos);
 ADD_FREE_FUNC(atan, atan);
+ADD_FREE_FUNC_2ARG(atan2, atan2);
 ADD_FREE_FUNC(sinh, sinh);
 ADD_FREE_FUNC(cosh, cosh);
 ADD_FREE_FUNC(tanh, tanh);
@@ -749,6 +774,33 @@ std::ostream& operator<<(std::ostream& os, const BoolPack<NumElem, ElemSize>& pa
 	os << ']';
 	return os;
 }
+
+// === Formatter ===
+template <typename ValTy, size_t PackSize>
+class std::formatter<ValuePack<ValTy, PackSize>>
+{
+public:
+	constexpr auto parse(auto& context)
+	{
+		return context.begin();
+	}
+	auto format(const ValuePack<ValTy, PackSize>& pack, auto& context)
+	{
+		auto it = context.out();
+		*(it++) = '[';
+		for (size_t i = 0; i < PackSize; i++)
+		{
+			if (i)
+			{
+				*(it++) = ',';
+				*(it++) = ' ';
+			}
+			it = std::format_to(it, "{}", pack[i]);
+		}
+		*(it++) = ']';
+		return it;
+	}
+};
 
 // === Deduction Guides ===
 template <typename FirstTy, IsValTy<FirstTy>... OtherTy> ValuePack(FirstTy, OtherTy...)

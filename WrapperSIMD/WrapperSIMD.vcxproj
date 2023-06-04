@@ -87,6 +87,7 @@
       <DisableSpecificWarnings>4711;4710;4820;4626;4625;5026;5027;4514;4365;5045</DisableSpecificWarnings>
       <PreprocessToFile>false</PreprocessToFile>
       <FloatingPointModel>Strict</FloatingPointModel>
+      <BuildStlModules>false</BuildStlModules>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -110,6 +111,7 @@
       <DisableSpecificWarnings>4711;4710;4820;4626;4625;5026;5027;4514;4365;5045</DisableSpecificWarnings>
       <PreprocessToFile>false</PreprocessToFile>
       <FloatingPointModel>Fast</FloatingPointModel>
+      <BuildStlModules>false</BuildStlModules>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -133,6 +135,7 @@
       <DisableSpecificWarnings>4711;4710;4820;4626;4625;5026;5027;4514;4365;5045</DisableSpecificWarnings>
       <PreprocessToFile>false</PreprocessToFile>
       <FloatingPointModel>Strict</FloatingPointModel>
+      <BuildStlModules>false</BuildStlModules>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -156,6 +159,7 @@
       <DisableSpecificWarnings>4711;4710;4820;4626;4625;5026;5027;4514;4365;5045</DisableSpecificWarnings>
       <PreprocessToFile>false</PreprocessToFile>
       <FloatingPointModel>Fast</FloatingPointModel>
+      <BuildStlModules>false</BuildStlModules>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

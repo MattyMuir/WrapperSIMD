@@ -364,6 +364,7 @@ FodyWeavers.xsd
 
 # VTune Profiler
 VTune*Profiler*Results/
+Intel®*VTune™*Profiler*Results/
 
 # GPU Cache
 GPUCache/
