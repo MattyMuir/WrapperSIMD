@@ -777,25 +777,17 @@ std::ostream& operator<<(std::ostream& os, const BoolPack<NumElem, ElemSize>& pa
 
 // === Formatter ===
 template <typename ValTy, size_t PackSize>
-class std::formatter<ValuePack<ValTy, PackSize>>
+struct std::formatter<ValuePack<ValTy, PackSize>> : std::formatter<const char*>
 {
 public:
-	constexpr auto parse(auto& context)
-	{
-		return context.begin();
-	}
-	auto format(const ValuePack<ValTy, PackSize>& pack, auto& context)
+	auto format(ValuePack<ValTy, PackSize> pack, format_context& context) const
 	{
 		auto it = context.out();
 		*(it++) = '[';
 		for (size_t i = 0; i < PackSize; i++)
 		{
-			if (i)
-			{
-				*(it++) = ',';
-				*(it++) = ' ';
-			}
-			it = std::format_to(it, "{}", pack[i]);
+			if (i) std::format_to(it, ", ");
+			std::format_to(it, "{}", pack[i]);
 		}
 		*(it++) = ']';
 		return it;
