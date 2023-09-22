@@ -154,6 +154,10 @@ concept IsValTy = std::is_convertible_v<T, ValTy>;
 template <typename Arithmetic>
 using SumType = decltype(Arithmetic{} + Arithmetic{});
 
+// Pre declare ValuePack
+template <typename ValTy, size_t PackSize>
+class ValuePack;
+
 template <size_t NumElem, size_t ElemSize>
 class BoolPack
 {
@@ -207,6 +211,13 @@ public:
 			__m128i& pack = *(__m128i*) & d;
 			return (bool)_mm_testz_si128(pack, pack);
 		}
+	}
+
+	template <typename To>
+	inline ValuePack<To, NumElem* ElemSize / sizeof(To)> Cast() const
+	{
+		using PackTy = ValuePack<To, NumElem* ElemSize / sizeof(To)>::PackTy;
+		return std::bit_cast<PackTy>(d);
 	}
 
 protected:
@@ -389,7 +400,7 @@ public:
 	}
 
 	template<typename To>
-	ValuePack<To, PackSize> Convert()
+	inline ValuePack<To, PackSize> Convert()
 	{
 		static constexpr bool cvtIs256 = is256 || (sizeof(To) * PackSize == 32);
 
@@ -397,7 +408,8 @@ public:
 		if constexpr (std::is_same_v<ValTy, To>) return (*this);
 
 		// Converting (signed -> unsigned) or vice versa
-		if constexpr (std::is_same_v<std::make_unsigned_t<ValTy>, std::make_unsigned_t<To>>) return pack;
+		if constexpr (std::is_integral_v<ValTy>)
+			if constexpr (std::is_same_v<std::make_unsigned_t<ValTy>, std::make_unsigned_t<To>>) return pack;
 
 		if constexpr (std::is_same_v<ValTy, int8_t>)
 			RETURN_OP(cvtIs256, cvtepi8, To, pack);
@@ -419,6 +431,45 @@ public:
 			RETURN_OP(cvtIs256, cvtps, To, pack);
 		if constexpr (std::is_same_v<ValTy, double>)
 			RETURN_OP(cvtIs256, cvtpd, To, pack);
+	}
+
+	template<typename To>
+	inline ValuePack<To, PackSize> Cast()
+	{
+		// Types are the same, no cast necessary
+		if constexpr (std::is_same_v<ValTy, To>) return (*this);
+
+		// All integral types are stored in the same container, no cast necessary
+		if constexpr (std::is_integral_v<ValTy> && std::is_integral_v<To>)
+			return pack;
+
+		// 128 bit
+		if constexpr (!is256 && std::is_same_v<ValTy, float> && std::is_same_v<To, double>)
+			return _mm_castps_pd(pack);
+		if constexpr (!is256 && std::is_same_v<ValTy, float> && std::is_integral_v<To>)
+			return _mm_castps_si128(pack);
+		if constexpr (!is256 && std::is_same_v<ValTy, double> && std::is_same_v<To, float>)
+			return _mm_castpd_ps(pack);
+		if constexpr (!is256 && std::is_same_v<ValTy, double> && std::is_integral_v<To>)
+			return _mm_castpd_si128(pack);
+		if constexpr (!is256 && std::is_integral_v<ValTy> && std::is_same_v<To, float>)
+			return _mm_castsi128_ps(pack);
+		if constexpr (!is256 && std::is_integral_v<ValTy> && std::is_same_v<To, double>)
+			return _mm_castsi128_pd(pack);
+
+		// 256 bit
+		if constexpr (is256 && std::is_same_v<ValTy, float> && std::is_same_v<To, double>)
+			return _mm256_castps_pd(pack);
+		if constexpr (is256 && std::is_same_v<ValTy, float> && std::is_integral_v<To>)
+			return _mm256_castps_si256(pack);
+		if constexpr (is256 && std::is_same_v<ValTy, double> && std::is_same_v<To, float>)
+			return _mm256_castpd_ps(pack);
+		if constexpr (is256 && std::is_same_v<ValTy, double> && std::is_integral_v<To>)
+			return _mm256_castpd_si256(pack);
+		if constexpr (is256 && std::is_integral_v<ValTy> && std::is_same_v<To, float>)
+			return _mm256_castsi256_ps(pack);
+		if constexpr (is256 && std::is_integral_v<ValTy> && std::is_same_v<To, double>)
+			return _mm256_castsi256_pd(pack);
 	}
 
 	// == Numerical operations ==
@@ -592,6 +643,9 @@ public:
 
 	template <ComparisonOperator op, typename ValTy, size_t PackSize>
 	friend BoolPack<PackSize, sizeof(ValTy)> cmp(ValuePack<ValTy, PackSize> pack1, ValuePack<ValTy, PackSize> pack2);
+
+	template <size_t NumElem, size_t ElemSize>
+	friend class BoolPack;
 	
 	PackTy pack;
 };
