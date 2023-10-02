@@ -966,6 +966,7 @@ inline ValuePack<double, 4> prev(ValuePack<double, 4> pack)
 template <ComparisonOperator op, typename ValTy, size_t PackSize>
 inline BoolPack<PackSize, sizeof(ValTy)> cmp(ValuePack<ValTy, PackSize> pack1, ValuePack<ValTy, PackSize> pack2)
 {
+	static_assert(std::is_floating_point_v<ValTy>, "Function cmp only supports floating point types.");
 	RETURN_OP(pack1.is256, cmp, ValTy, pack1.pack, pack2.pack, op);
 }
 
