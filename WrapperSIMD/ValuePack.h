@@ -4,7 +4,7 @@
 #include <type_traits>
 #include <format>
 
-#include <intrin.h>
+#include <immintrin.h>
 
 enum ComparisonOperator
 {
@@ -56,33 +56,33 @@ else\
 }\
 
 #define ADD_OP_METHOD(op, mmOpName)\
-inline ValuePack operator##op##(ValuePack other) const\
+inline ValuePack operator op (ValuePack other) const\
 {\
 	RETURN_OP(is256, mmOpName, ValTy, pack, other.pack);\
 }
 
 #define ADD_IN_PLACE_METHOD(op)\
-inline ValuePack& operator##op##=(ValuePack other)\
+inline ValuePack& operator op##=(ValuePack other)\
 {\
 	pack = ((*this) op other).pack;\
 	return *this;\
 }
 
 #define ADD_SCALAR_METHOD(op)\
-inline ValuePack operator##op##(ValTy x) const\
+inline ValuePack operator op (ValTy x) const\
 {\
 	return (*this) op ValuePack::RepVal(x);\
 }
 
 #define ADD_IN_PLACE_SCALAR_METHOD(op)\
-inline ValuePack& operator##op##=(ValTy x)\
+inline ValuePack& operator op##=(ValTy x)\
 {\
 	pack = ((*this) op ValuePack::RepVal(x)).pack;\
 	return *this;\
 }
 
 #define ADD_BITWISE_METHOD(op, mmOpName)\
-inline ValuePack operator##op##(ValuePack other) const\
+inline ValuePack operator op (ValuePack other) const\
 {\
 	if constexpr (std::is_integral_v<ValTy>)\
 	{\
@@ -108,7 +108,7 @@ inline ValuePack operator##op##(ValuePack other) const\
 }
 
 #define ADD_COMP_OP(op, mmOpName, opCode)\
-inline BoolPack<PackSize, sizeof(ValTy)> operator##op##(ValuePack other)\
+inline BoolPack<PackSize, sizeof(ValTy)> operator op (ValuePack other)\
 {\
 	if constexpr (std::is_integral_v<ValTy>)\
 	{\
@@ -121,7 +121,7 @@ inline BoolPack<PackSize, sizeof(ValTy)> operator##op##(ValuePack other)\
 }
 
 #define ADD_COMP_OP_SCALAR(op)\
-inline BoolPack<PackSize, sizeof(ValTy)> operator##op##(ValTy x)\
+inline BoolPack<PackSize, sizeof(ValTy)> operator op (ValTy x)\
 {\
 	return (*this) op RepVal(x);\
 }
@@ -134,8 +134,8 @@ inline ValuePack<ValTy, PackSize> funcName (ValuePack<ValTy, PackSize> pack)\
 }
 
 #define ADD_FREE_FRIEND(funcName)\
-template <typename ValTy, size_t PackSize>\
-friend ValuePack<ValTy, PackSize> funcName (ValuePack<ValTy, PackSize> pack);
+template <typename ValTy2, size_t PackSize2>\
+friend ValuePack<ValTy2, PackSize2> funcName (ValuePack<ValTy2, PackSize2> pack);
 
 #define ADD_FREE_FUNC_2ARG(funcName, mmOpName)\
 template <typename ValTy, size_t PackSize>\
@@ -145,8 +145,8 @@ inline ValuePack<ValTy, PackSize> funcName (ValuePack<ValTy, PackSize> pack1, Va
 }
 
 #define ADD_FREE_FRIEND_2ARG(funcName)\
-template <typename ValTy, size_t PackSize>\
-friend ValuePack<ValTy, PackSize> funcName (ValuePack<ValTy, PackSize> pack1, ValuePack<ValTy, PackSize> pack2);
+template <typename ValTy2, size_t PackSize2>\
+friend ValuePack<ValTy2, PackSize2> funcName (ValuePack<ValTy2, PackSize2> pack1, ValuePack<ValTy2, PackSize2> pack2);
 
 template<typename ValTy, typename T>
 concept IsValTy = std::is_convertible_v<T, ValTy>;
@@ -190,12 +190,12 @@ public:
 		if constexpr (is256)
 		{
 			__m256i& pack = *(__m256i*) & d;
-			return (bool)_mm256_test_all_ones(pack);
+			return (bool)_mm256_testc_si256((pack), _mm256_cmpeq_epi32((pack), (pack)));
 		}
 		else
 		{
 			__m128i& pack = *(__m128i*) & d;
-			return (bool)_mm_test_all_ones(std::bit_cast<__m128i>(d));
+			return (bool)_mm_testc_si128((pack), _mm_cmpeq_epi32((pack), (pack)));
 		}
 	}
 
@@ -429,10 +429,38 @@ protected:
 		return DoRangeWithSet(incr, first);
 	}
 
-public:
+	template <size_t ShiftAmount, size_t... Sources>
+	static constexpr int32_t ToControlMask()
+	{
+		int32_t ret = 0;
+		uint32_t i = 0;
+		for (size_t source : { Sources... })
+		{
+			ret += source << (i * ShiftAmount);
+			i++;
+		}
+		return ret;
+	}
 
+	template <size_t ShiftAmount, size_t... Sources>
+	static constexpr int32_t HalfSizeControlMask()
+	{
+		int32_t ret = 0;
+		uint32_t i = 0;
+		for (size_t source : { Sources... })
+		{
+			source *= 2;
+			ret += source << (i * ShiftAmount);
+			i++;
+			ret += (source + 1) << (i * ShiftAmount);
+			i++;
+		}
+		return ret;
+	}
+
+public:
 	// == Special members ==
-	consteval size_t Size()
+	static consteval size_t Size()
 	{
 		return PackSize;
 	}
@@ -517,6 +545,69 @@ public:
 			return _mm256_castsi256_ps(pack);
 		if constexpr (is256 && std::is_integral_v<ValTy> && std::is_same_v<To, double>)
 			return _mm256_castsi256_pd(pack);
+	}
+
+	template <size_t... Sources>
+	inline ValuePack Permute() const
+	{
+		static_assert(sizeof...(Sources) == PackSize, "Permute sources must have same size as pack");
+		static_assert((... && (Sources < PackSize)), "Permute sources out of range");
+
+		// 128 bit
+		if constexpr (!is256)
+		{
+			// int32 and uint32
+			if constexpr (std::is_integral_v<ValTy> && sizeof(ValTy) == 4)
+			{
+				return _mm_shuffle_epi32(pack, ToControlMask<2, Sources...>());
+			}
+
+			// int8 and uint8
+			if constexpr (std::is_integral_v<ValTy> && sizeof(ValTy) == 1)
+			{
+				return _mm_shuffle_epi8(pack, ValuePack<int8_t, 16>{ static_cast<uint8_t>(Sources)... }.pack);
+			}
+
+			// int64 and uint64
+			if constexpr (std::is_integral_v<ValTy> && sizeof(ValTy) == 8)
+			{
+				return _mm_shuffle_epi32(pack, HalfSizeControlMask<2, Sources...>());
+			}
+
+			// float
+			if constexpr (std::is_same_v<ValTy, float>)
+			{
+				return _mm_permute_ps(pack, ToControlMask<2, Sources...>());
+			}
+
+			// double
+			if constexpr (std::is_same_v<ValTy, double>)
+			{
+				// The following code should work, but _mm_permute_pd is very buggy in MSVC
+				//return _mm_permute_pd(pack, ToControlMask<1, Sources...>());
+
+				// Using _mm_shuffle_pd instead
+				return _mm_shuffle_pd(pack, pack, ToControlMask<1, Sources...>());
+			}
+
+			// TODO int16 and uint16
+		}
+
+		if constexpr (is256)
+		{
+			// double
+			if constexpr (std::is_same_v<ValTy, double>)
+			{
+				return _mm256_permute4x64_pd(pack, ToControlMask<2, Sources...>());
+			}
+
+			if constexpr (std::is_same_v<ValTy, float>)
+			{
+				return _mm256_permutevar8x32_ps(pack, ValuePack<int32_t, 8>{ static_cast<int32_t>(Sources)... }.pack);
+			}
+		}
+
+		throw;
 	}
 
 	// == Numerical operations ==
@@ -844,9 +935,9 @@ inline BoolPack<PackSize, sizeof(ValTy)> isfinite(ValuePack<ValTy, PackSize> pac
 
 inline ValuePack<int64_t, 4> exponent(ValuePack<double, 4> pack)
 {
-	ValuePack<uint64_t, 4> punt = pack.Cast<uint64_t>();
-	punt >>= 52;
-	return (punt & 0b111'1111'1111).Cast<int64_t>();
+	ValuePack<uint64_t, 4> punn = pack.Cast<uint64_t>();
+	punn >>= 52;
+	return (punn & 0b111'1111'1111).Cast<int64_t>();
 }
 
 inline ValuePack<double, 4> next(ValuePack<double, 4> pack)

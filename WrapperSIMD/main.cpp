@@ -1,14 +1,11 @@
 #include <print>
-#include <random>
-#include <limits>
-#include <compare>
 
 #include "ValuePack.h"
 
 int main()
 {
-	ValuePack<double, 4> pack{ 1.0, 2.0, -3.0, 4.0 };
-	ValuePack<double, 4> nudged = next(pack);
-
-	std::println("{}", nudged);
+	ValuePack<float, 8> pack{ 3.0f, -6.0f, 9.0f, 12.0f, 15.0f, 18.0f, 21.0f, 24.0f };
+	pack = abs(pack);
+	for (size_t i = 0; i < pack.Size(); i++)
+		std::println("{}", pack[i]);
 }
